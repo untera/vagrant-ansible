@@ -1,0 +1,80 @@
+---
+- hosts: all
+  tasks:
+    - name: ensure apache2 is at the latest version
+      apt: name=apache2 state=latest update_cache=yes
+      sudo: yes
+      notify: restart apache2
+
+    - name: ensure apache2 rewrite module active
+      apache2_module: state=present name=rewrite
+      sudo: yes
+      notify: restart apache2
+
+    - name: ensure apache2 headers module active
+      apache2_module: state=present name=headers
+      sudo: yes
+      notify: restart apache2
+
+    - name: add vhost site
+      sudo: yes
+      template: src=test.conf.tpl dest=/etc/apache2/sites-available/test.conf
+      notify: restart apache2
+
+    - name: enable site test
+      sudo: yes
+      command: a2ensite test.conf
+      notify: restart apache2
+
+    - name: Install php5
+      sudo: yes
+      apt: pkg=php5 state=latest
+      notify: restart apache2
+
+    - name: mysql | Install MySQL Packages
+      sudo: yes
+      apt: pkg={{ item }} state=latest
+      with_items:
+        - mysql-server
+        - mysql-client
+        - python-mysqldb
+        - php5-mysql
+        - libapache2-mod-auth-mysql
+      notify:
+        - restart mysql
+
+    - name: mysql | Create databases
+      sudo: yes
+      mysql_db: name=test state=present
+
+    - name: 'Copy Conf file with root password credentials'
+      sudo: yes
+      template: src=.my.cnf dest=/root/.my.cnf owner=root group=root mode=0600
+      notify: restart mysql
+
+    - name: Ensure mysql binds to internal interface
+      sudo: yes
+      template: src=my.cnf dest=/etc/mysql/conf.d/my.cnf owner=root group=root mode=0644
+      notify: restart mysql
+
+    - name: 'Update Rest-Mysql Root Password'
+      mysql_user: name=test host={{ item }} password=password priv=*.*:ALL,GRANT login_unix_socket=/var/run/mysqld/mysqld.sock state=present
+      with_items:
+        - "%"
+      notify: restart mysql
+
+    - name: Install Composer
+      sudo: yes
+      shell: curl -sS https://getcomposer.org/installer | php && mv composer.phar /usr/local/bin/composer creates=/usr/local/bin/composer
+
+    # Downloads and installs all the libs and dependencies outlined in the /path/to/project/composer.lock
+    # - composer: command=install working_dir=/var/www/html/myfolder
+
+  handlers:
+    - name: restart apache2
+      sudo: yes
+      service: name=apache2 state=restarted
+
+    - name: restart mysql
+      sudo: yes
+      action: service name=mysql state=restarted
